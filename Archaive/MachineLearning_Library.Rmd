@@ -1,0 +1,1918 @@
+---
+title: '*Machine Learning*'
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      results = 'hide', 
+                      fig.show = 'hide',
+                      message = FALSE,
+                      warning = FALSE)
+options(digits = 3)
+# theme_set(theme_minimal())
+```
+
+# ML model
+1. Data preprocessing: 
+- Feature scaling & dropping (depend)
+- Dimensionality reduction (depend): feature selection (regression model), feature extraction (PCA, LDA, Kernel PCA)
+2. Model fitting: ML algorithm
+3. Prediction: exception (real-time search) (no need)
+4. Evaluation:
+- Supervised learning - regression (RMSE)
+- Supervised learning - classification (accuracy)
+- Unsupervised learning (no need)
+5. Visulization
+6. Model selection
+
+# Package loading
+```{r loadPackages}
+if(!require("pacman")) install.packages("pacman")
+pacman::p_load(dplyr, broom, # operatic
+               caTools, caret, # statistic
+               ggplot2, gridExtra, lattice, GGally # graphic
+              )
+```
+
+# Data Preprocessing
+
+### Importing the dataset
+```{r}
+dataset = read.csv('Data.csv')
+```
+
+### Training set and test set
+```{r}
+## 1
+set.seed(123)
+split = sample.split(dataset$Purchased, SplitRatio = 0.7)
+training.set = subset(dataset, split == T)
+test.set = subset(dataset, split == F)
+
+## 2
+# set.seed(123)
+# split = createDataPartition(data$Purchased, p = 0.7, list = F)
+# training = dataset[split, ]
+# testing = dataset[-split, ]
+```
+1. Changing the split target to dependent variable for the model.
+2. Train set is using to build the model, and test set is evaluating the model and it should *be use only one time* when finishing the model.
+
+### Encoding categorical data
+```{r}
+# Refix numeric misidentified variable to categorical (factor) variable
+summary(dataset)
+dataset$Country = factor(dataset$Country,
+                         levels = c('France', 'Spain', 'Germany'),
+                         labels = c(1, 2, 3))
+dataset$Purchased = factor(dataset$Purchased,
+                           levels = c('No', 'Yes'),
+                           labels = c(0, 1))
+
+# Create dummy variable from categorical (factor) variable (one to many)
+# dummy = dummyVars( ~ am, data = mtcars)
+# dataset = predict(dummy, newdata = mtcars) %>% data.frame(mtcars[, -c(9)])
+
+# Create continuous variable to categorical (factor) variable (sectioning)
+# cut2(dataset$continuous.numeric.variable, g = number of splitting section group)
+```
+1. Turning character variables to factor variables to be able to do them with ML.
+
+### Taking care of missing data
+```{r}
+# Total number of missing data
+glance(dataset) %>% mutate(na.number = na.fraction * nrow * ncol)
+
+# Individual number in column of missing data
+colSums(is.na(dataset))
+
+# Replacing missing data
+dataset$Age = ifelse(is.na(dataset$Age), 
+                     ave(dataset$Age, 
+                         FUN = function(x) mean(x, na.rm = T)),
+                     dataset$Age)
+
+# Imputing missing data (recommond)
+# miss = preProcess(dataset[, -4], method = "knnImpute")
+# dataset = predict(miss, dataset[, c(-4)]) %>% data.frame(data$Purchased)
+
+# Removing variables (columns) that are mostly NA
+# all.na = sapply(dataset, function(x) mean(is.na(x))) > 0.95
+# dataset = dataset[, all.na == F]
+
+# Removing observations (rows) that have NA
+# dataset = na.omit(dataset)
+```
+1. Checking where the na column is.
+2. Dealing with numerical variables. Using CTRL+F to replace all the key word to do it repeatly. Using CTRL+I to space it correctly.
+
+### Variable selection
+```{r}
+# Checking variables with nearly zero variance
+# nzv = nearZeroVar(dataset, saveMetrics = T); nzv
+
+# Removing variables with nearly zero variance
+# nzv = nearZeroVar(dataset)
+# dataset = dataset[, -nzv]
+
+# Remove the identification only variables and choose column in index number
+# dataset = dataset[, c(?) or -c(?)]
+
+# Choose column in name by regular expression select
+# dataset = dataset[, grep("regex", names(dataset))]
+```
+1. Identifying the variables that have marginal variablility and likely not be good predictors.
+2. If near zero variable (nzv) column shows as TRUE, the variable is acceptable to drop due to the value being the same as all zero.
+3. Regular exression (regex): cheatsheet. (https://tinyurl.com/y4obdv4p)
+4. For example, "^a" (apple, acer, a_type), "b$" (bomb, type_b), "^a|b" (a_type, b_type). (https://tinyurl.com/yxhjargn)
+
+### Feature scaling (standardization) (optional)
+```{r}
+## 1
+# dataset[, -ncol(dataset)] = scale(dataset[, -ncol(dataset)])
+
+## 2
+# scale = preProcess(dataset[, -c("y")], method = c("center", "scale" or "BoxCox"))
+# dataset = predict(scale, dataset[, -c("y")]) %>% data.frame(dataset$y)
+```
+1. Standaridization = (x - mean(x)) / sd(x). It rescales the data to have a mean of 0 and a standard deviation of 1.
+2. Normalization = (x - min(x)) / diff(range(x)). It rescales the data into a range of [0;1].
+3. Only the dependent variable does not need the scale; the rest of all independent variables need to set under the same scale, but only with one rule that scaling including continuous variables and excluding categorical variables.
+4. Scaling and preprocessing should use the train setting into test as well.
+
+### Exploring & analyzing data
+```{r}
+## 1
+# library('GGally')
+# p1 = ggpairs(data = training.set, # data source
+#              column = c("var", ...), # select column
+#              mapping = aes(col = var), # color
+#              lower = list(continuous = wrap('smooth', method = 'lm'))) # lm line
+
+## 2
+# featurePlot(x = train[, c("id.var.1", "id.var.2", "id.var.3")],
+#             y = train$dependent.var,
+#             plot = "pairs")
+
+## 3
+# qplot(data = train, x = in.var.1, y = d.var, col|fill = in.var.2, size = in.var.3, geom = c("boxplot", "jitter", "density"))
+
+## 4
+# corMatrix = cor(train)
+# corrplot(corMatrix, order = "FPC", method = "color", type = "lower", 
+#          tl.cex = 0.8, tl.col = rgb(0, 0, 0))
+
+## 5
+# table(row, column)
+# prop.table(row, column, (1:proportion in row, 2:proportion in col))
+```
+1. Only make the EDA in the training set. No use the test set for exploration.
+2. Things should be looking for: imbalance, outlier, skewed distribution.
+3. Plot and table are the ways for EDA.
+4. If the correlations are quite more, a principal components analysis (PCA) could be performed as processing step to make an even more compact analysis.
+
+### Dimensionality reduction - PCA (optional)
+```{r}
+# library('caret')
+# pca = preProcess(x = training[, -ncol(training)],
+#                  method = 'pca',
+#                  pcaComp = 2 | thresh = 0.8 or 0.9)
+# training = predict(pca, training)
+# training = training[, c(pc1, pc2, y)]
+# testing = predict(pca, testing)
+# testing = testing[, c(pc1, pc2, y)]
+```
+1. The basic PCA idea is that we might not need every variable (predictor) (indenpendent variable).
+2. PCA is a weighted combination of predictors.
+3. We pick this combination to capture the most information (variability).
+4. Goods reduce number of predictors, reduce noise (due to averaging).
+5. Bad: lose interpretability (due to hard to explain).
+6. It is easy got affected by outliers. so by doing EDA is a good way to aviod this weakness.
+7. More dimensionality reduction examples as below at the end (dimensionality reduction section).
+
+# Regression
+1. Regression for predicting a continuous data, which can be evaluated by root mean squared error (RMSE), r squared.
+2. Supervised learning, having a label variable or dependent variable or correct answer.
+
+### Simple linear regression
+```{r}
+## 1
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Salary_Data.csv')
+set.seed(123)
+split = sample.split(dataset$Salary, SplitRatio = 2/3)
+training.set = subset(dataset, split == T)
+test.set = subset(dataset, split == F)
+
+# Model fitting
+mod = lm(Salary ~ YearsExperience, data = training.set)
+summary(mod)
+
+# Causation
+confint(mod, level = 0.95) # estimate of interval
+data.frame(summary(mod)$coef[, 1], confint(mod, level = 0.95)) # estimate and its interval
+
+# Prediction
+predict(mod, newdata = test.set, 
+        interval = 'confidence', 
+        level = 0.95) # linear-combination of interval
+predict(mod, newdata = test.set) # vector
+y.pred = augment(mod, newdata = test.set) # matrix
+
+# Error rate evaluating (RMSE)
+library('forecast')
+accuracy(y.pred$.fitted, y.pred$Salary) # RMSE on test 6553
+accuracy(augment(mod, newdata = training.set)$.fitted, augment(mod, newdata = training.set)$Salary) # RMSE on training 5114
+
+# Model visualising
+plot.training = ggplot() + 
+    geom_point(aes(x = training.set$YearsExperience,
+                   y = training.set$Salary),
+               col = 'red') + 
+    geom_line(aes(x = training.set$YearsExperience, 
+                  y = predict(mod, newdata = training.set)),
+              col = 'blue') +
+    labs(title = 'Salary vs Experience',
+         subtitle = 'Training set',
+         x = 'Years of experience',
+         y = 'Salary')
+plot.test = ggplot() + 
+    geom_point(aes(x = test.set$YearsExperience,
+                   y = test.set$Salary),
+               col = 'red') + 
+    geom_line(aes(x = training.set$YearsExperience, 
+                  y = predict(mod, newdata = training.set)),
+              col = 'blue') +
+    labs(title = 'Salary vs Experience',
+         subtitle = 'Test set',
+         x = 'Years of experience',
+         y = 'Salary')
+grid.arrange(plot.training, plot.test, nrow = 1)
+
+## 2
+# fit = train(y ~ x, data = dataset, method = "lm")
+# mod = fit$finalModel
+```
+1. It already has a standardization in default with the model.
+
+### Multiple linear regression
+```{r}
+## 1
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('50_Startups.csv')
+dataset$State = factor(dataset$State,
+                       levels = c('New York', 
+                                  'California', 
+                                  'Florida'),
+                       labels = c(1, 2, 3))
+set.seed(123)
+split = sample.split(dataset$Profit, SplitRatio = 0.8)
+training.set = subset(dataset, split == T)
+test.set = subset(dataset, split == F)
+
+# Model fitting
+# Variable selection
+# All-in
+mod.all = lm(Profit ~ ., data = training.set)
+summary(mod.all)
+sc.all = glance(mod.all)
+# Backward elimination
+mod.back = step(mod.all, direction = 'backward')
+summary(mod.back)
+sc.back = glance(mod.back)
+# Forward selection
+mod.null = lm(Profit ~ 1, data = training.set)
+mod.for = step(mod.null, scope = list(lower = mod.null,
+                                      upper = mod.all),
+               direction = 'forward')
+summary(mod.for)
+sc.for = glance(mod.for)
+# Stepwise regression
+mod.step = step(mod.all, direction = 'both')
+summary(mod.step)
+sc.step = glance(mod.step)
+# Finalised model
+sc = data.frame('type' = c('All-in',
+                           'Backward elimination',
+                           'Forward selection',
+                           'Stepwise regression'),
+                'adj.r.squared' = c(sc.all$adj.r.squared, 
+                                    sc.back$adj.r.squared,
+                                    sc.for$adj.r.squared,
+                                    sc.step$adj.r.squared),
+                'AIC' = c(sc.all$AIC, 
+                          sc.back$AIC,
+                          sc.for$AIC,
+                          sc.step$AIC),
+                'BIC' = c(sc.all$BIC, 
+                          sc.back$BIC,
+                          sc.for$BIC,
+                          sc.step$BIC))
+mod = lm(Profit ~ R.D.Spend + Marketing.Spend, data = training.set)
+summary(mod)
+
+# Checking assumptions (optional)
+# {r, fig.height = 5, fig.width = 5} # better shape with square
+par(mfrow = c(2, 2)); plot(mod)
+
+# Checking others (optional)
+library('car')
+vif(mod) # variance inflation factor
+varImp(mod, decreasing = T) # variable importance for regression and classification
+
+# Prediction
+predict(mod, newdata = test.set)
+y.pred = augment(mod, newdata = test.set)
+
+## 2
+# fit = train(data = training, preProcess = c("center", "scale"), y ~ ., method = "glm" | "lm") # model fitting
+# mod = fit$finalModel # model final
+# pred = predict(mod, newdata = testing); pred # prediction
+# confusionMatrix(pred, testing$y) # evaluation
+```
+1. It already has a standardization in default with the model.
+2. It can automatically identify categorical variables and set them up to dummy variables. It will drop the base one to prevent from the problem of exact collinearity (multicollinearity).
+3. Finding the common agreement with all variable selection methods.
+4. Checking assumptions established (error term / residual).
+- Residuals vs Fitted: homoscedasticity (error variance = constant)
+- Normal Q-Q: normal distribution (error mean = 0)
+- Redisuals vs Leverage: no outlier (error distribtion is normal)
+- ACF: no serial correlation (autocorrelation) (error covariance = 0)
+5. Finalised model summary gives the causation and its predict gives the prediction.
+6. Regression modeling processes are theroying, data collection, data cleaning, training set & test set, variable selection (feature selection), advancing by the goodness of fit, checking finalised model assumptions, evaluating with test set (no underfit nor overfit), causation & prediction with the finalised model.
+
+### Polynomial non-linear regression
+```{r}
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Position_Salaries.csv')
+dataset = dataset[, c(2, 3)]
+
+# Model fitting
+mod.nlm = lm(Salary ~ Level + I(Level^2) + I(Level^3) + I(Level^4),
+             data = dataset)
+summary(mod.nlm)
+mod.lm = lm(Salary ~ Level, 
+            data = dataset)
+summary(mod.lm)
+
+# Model visualising
+ggplot() +
+    geom_point(aes(x = dataset$Level, y = dataset$Salary)) +
+    geom_line(aes(x = dataset$Level,
+                  y = predict(mod.lm, newdata = dataset)),
+              col = 'red') +
+    labs(title = 'Simple linear regression',
+         subtitle = 'SLR',
+         x = 'Level',
+         y = 'Salary') +
+    geom_point(aes(x = 6.5,
+                   y = predict(mod.lm, 
+                               newdata = data.frame(Level = 6.5))),
+               shape = 18, size = 3) +
+    annotate(geom = 'text', 
+             x = 7.2,
+             y = predict(mod.lm, 
+                         newdata = data.frame(Level = 6.5)),
+             label = as.integer
+             (predict(mod.lm, 
+                      newdata = data.frame(Level = 6.5))))
+ggplot() +
+    geom_point(aes(x = dataset$Level, y = dataset$Salary)) +
+    geom_line(aes(x = dataset$Level,
+                  y = predict(mod.nlm, newdata = dataset)),
+              col = 'red') +
+    labs(title = 'Polynomial non-linear regression',
+         subtitle = 'PNLR',
+         x = 'Level',
+         y = 'Salary') +
+    geom_point(aes(x = 6.5,
+                   y = predict(mod.nlm, 
+                               newdata = data.frame(Level = 6.5))),
+               shape = 18, size = 3) +
+    annotate(geom = 'text', 
+             x = 7.2,
+             y = predict(mod.nlm, 
+                         newdata = data.frame(Level = 6.5)),
+             label = as.integer
+             (predict(mod.nlm, 
+                      newdata = data.frame(Level = 6.5))))
+```
+1. It already has a standardization in default with the model.
+2. It works on non-linear problems.
+
+### Support vector regression
+```{r}
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Position_Salaries.csv')
+dataset = dataset[, c(2, 3)]
+
+# Model fitting
+library('e1071')
+mod = svm(Salary ~ .,
+          data = dataset,
+          type = 'eps-regression',
+          kernel = 'linear')
+summary(mod)
+
+# Model visualising
+ggplot() +
+    geom_point(aes(x = dataset$Level, y = dataset$Salary)) +
+    geom_line(aes(x = dataset$Level,
+                  y = predict(mod, newdata = dataset)),
+              col = 'red') +
+    labs(title = 'Support vector regression',
+         subtitle = 'SVR-L',
+         x = 'Level',
+         y = 'Salary') +
+    geom_point(aes(x = 6.5,
+                   y = predict(mod, 
+                               newdata = data.frame(Level = 6.5))),
+               shape = 18, size = 3) +
+    annotate(geom = 'text', 
+             x = 7.2,
+             y = predict(mod, 
+                         newdata = data.frame(Level = 6.5)),
+             label = as.integer
+             (predict(mod, 
+                      newdata = data.frame(Level = 6.5))))
+```
+1. It is a linear regression model.
+2. It already has a standardization in default with the model.
+3. Support vector regression for regression; support vector mechine for classification.
+4. Kernel type being linear is linear model; kernel type being others is non-linear model.
+5. It is not biased by outliers.
+
+### Kernel support vector regression
+```{r}
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Position_Salaries.csv')
+dataset = dataset[, c(2, 3)]
+
+# Model fitting
+library('e1071')
+mod = svm(Salary ~ .,
+          data = dataset,
+          type = 'eps-regression',
+          kernel = 'radial')
+summary(mod)
+
+# Model visualising
+ggplot() +
+    geom_point(aes(x = dataset$Level, y = dataset$Salary)) +
+    geom_line(aes(x = dataset$Level,
+                  y = predict(mod, newdata = dataset)),
+              col = 'red') +
+    labs(title = 'Kernel support vector regression - non-linear',
+         subtitle = 'Kernel SVR-NL',
+         x = 'Level',
+         y = 'Salary') +
+    geom_point(aes(x = 6.5,
+                   y = predict(mod, 
+                               newdata = data.frame(Level = 6.5))),
+               shape = 18, size = 3) +
+    annotate(geom = 'text', 
+             x = 7.2,
+             y = predict(mod, 
+                         newdata = data.frame(Level = 6.5)),
+             label = as.integer
+             (predict(mod, 
+                      newdata = data.frame(Level = 6.5))))
+```
+1. It is a non-linear regression model.
+2. It already has a standardization in default with the model.
+3. The process is mapping to a kernel function space, having the crossing intersection of interest, and projecting back to the orginal space to have the non-linear regression.
+4. It is not biased by outliers.
+
+### Decision tree regression
+```{r}
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Position_Salaries.csv')
+dataset = dataset[, c(2, 3)]
+
+# Model fitting
+library('rpart')
+set.seed(123)
+mod = rpart(Salary ~ .,
+            data = dataset,
+            method = 'anova',
+            control = rpart.control(minsplit = 1,
+                                    xval = 10))
+
+# Tree pruning
+plotcp(mod)
+# mod = prune(mod, cp = XXX) # from cptable
+printcp(mod)
+
+# Generating the tree and the rule
+library('rpart.plot')
+options(scipen = 999)
+rpart.rules(mod, cover = T, roundint = F)
+prp(mod, roundint = F, type = 3, extra = 101, under = T, digits = -2,
+    box.palette = 'auto')
+
+# Model visualising
+x.grid = seq(min(dataset$Level), max(dataset$Level), 0.001)
+ggplot() +
+    geom_point(aes(x = dataset$Level, y = dataset$Salary)) +
+    geom_line(aes(x = x.grid,
+                  y = predict(mod, 
+                              newdata = data.frame(Level = x.grid))),
+              col = 'red') +
+    labs(title = 'Decision tree regression',
+         subtitle = 'CART-R',
+         x = 'Level',
+         y = 'Salary') +
+    geom_point(aes(x = 6.5,
+                   y = predict(mod, 
+                               newdata = data.frame(Level = 6.5))),
+               shape = 18, size = 3) +
+    annotate(geom = 'text', 
+             x = 7.2,
+             y = predict(mod, 
+                         newdata = data.frame(Level = 6.5)),
+             label = as.integer
+             (predict(mod, 
+                      newdata = data.frame(Level = 6.5))))
+```
+1. It is a non-linear regression model, and also works on linear problems.
+2. It does not need to apply feature scaling since it does not need to use the concept of eulidean distance.
+3. It is a non-continuous model. So, transforming non-continuous to continuous by using x.grid.
+4. The tree and the rule is more useful in decision tree classification.
+5. The summary can decide two trees of interest. Minimum error tree has lowest xerror on validation data. Best pruned tree is the smallest tree within one xstd, which can add a bonus for simplicity.
+6. Using cp (complexity parameter) in prune function could develop the best pruned tree or could decide the cp value which point is under the dashed line from plotcp(mod).
+7. It is good at interpretability.
+
+### Random forest regression
+```{r}
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Position_Salaries.csv')
+dataset = dataset[, c(2, 3)]
+
+# Model fitting
+library('randomForest')
+set.seed(123)
+mod = randomForest(Salary ~ .,
+                   data = dataset,
+                   ntree = 500)
+
+# Variable importance
+importance(mod)
+varImpPlot(mod, 
+           main = 'RF-R_Variable contribution')
+
+# Model visualising
+x.grid = seq(min(dataset$Level), max(dataset$Level), 0.001)
+ggplot() +
+    geom_point(aes(x = dataset$Level, y = dataset$Salary)) +
+    geom_line(aes(x = x.grid,
+                  y = predict(mod, 
+                              newdata = data.frame(Level = x.grid))),
+              col = 'red') +
+    labs(title = 'Random forest regression',
+         subtitle = 'RF-R',
+         x = 'Level',
+         y = 'Salary') +
+    geom_point(aes(x = 6.5,
+                   y = predict(mod, 
+                               newdata = data.frame(Level = 6.5))),
+               shape = 18, size = 3) +
+    annotate(geom = 'text', 
+             x = 7.2,
+             y = predict(mod, 
+                         newdata = data.frame(Level = 6.5)),
+             label = as.integer
+             (predict(mod, 
+                      newdata = data.frame(Level = 6.5))))
+```
+1. It is an ensemble learning, which is taking multiple algorithms or the same algorithm multiple times and putting them together to make it more powerful than the original.
+2. It is more stable and accurate than a decision tree regression for the identity of the mean or median. But, it will lose the beauty of the decision tree regression, which would be interpretable and transparent, that means the tree and the rule.
+3. It is also a non-linear model, a non-needed feature scaling model, and a non-continuous model.
+4. Evaluating variable importance can tell the contributing role of variables.
+
+# Classification
+1. Classification for predicting a categorical data, which can be evaluated by accuracy, kappa.
+2. Supervised learning, having a label variable or dependent variable or correct answer.
+
+### Logistic regression
+```{r}
+## 1
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Social_Network_Ads.csv')
+dataset = dataset[, c(3:5)]
+dataset$Purchased = factor(dataset$Purchased, levels = c(0, 1))
+dataset[, -ncol(dataset)] = scale(dataset[, -ncol(dataset)])
+set.seed(123)
+split = sample.split(dataset$Purchased, SplitRatio = 0.75)
+training.set = subset(dataset, split == T)
+test.set = subset(dataset, split == F)
+
+# Standard level changing (reference changing)
+dataset = relevel(dataset$Purchased, 1)
+
+# Model fitting
+mod = glm(Purchased ~ .,
+          data = training.set,
+          family = binomial)
+summary(mod)
+
+# Prediction
+y.pred.prob = predict(mod, type = 'response', 
+                      newdata = test.set[, -3])
+y.pred = factor(ifelse(y.pred.prob > 0.5, 1, 0), levels = c(0, 1))
+
+# Confusion matrix evaluating
+library('caret')
+confusionMatrix(y.pred, test.set[, 3])
+
+# Model visualising
+set = training.set
+X1 = seq(min(set[, 1]) - 1, max(set[, 1]) + 1, by = 0.01)
+X2 = seq(min(set[, 2]) - 1, max(set[, 2]) + 1, by = 0.01)
+grid.set = expand.grid(X1, X2)
+colnames(grid.set) = c('Age', 'EstimatedSalary')
+y.grid.prob = predict(mod, type = 'response',
+                      newdata = grid.set)
+y.grid = factor(ifelse(y.grid.prob > 0.5, 1, 0), levels = c(0, 1))
+plot(set[, -3],
+     main = 'Logistic regression (Training set)',
+     xlab = 'Age', ylab = 'Estimated salary',
+     xlim = range(X1), 
+     ylim = range(X2))
+points(grid.set, pch = '.', 
+       col = ifelse(y.grid == 1, 'springgreen3', 'tomato'))
+points(set, pch = 21, 
+       bg = ifelse(set[, 3] == 1, 'green4', 'red3'))
+set = test.set
+plot(set[, -3],
+     main = 'Logistic regression (Test set)',
+     xlab = 'Age', ylab = 'Estimated salary',
+     xlim = range(X1), 
+     ylim = range(X2))
+points(grid.set, pch = '.', 
+       col = ifelse(y.grid == 1, 'springgreen3', 'tomato'))
+points(set, pch = 21, 
+       bg = ifelse(set[, 3] == 1, 'green4', 'red3'))
+
+## 2
+# fit = train(data = training, preProcess = c("center", "scale"), y ~ ., method = "glm" | "lm") # model fitting
+# pred = predict(fit, newdata = testing) # prediction # default thresh 0.5 # include pred.prob > ifelse > pred
+# confusionMatrix(pred, testing$y) # evaluation
+```
+1. It needs to apply feature scaling.
+2. It is a linear classification model.
+
+### K-nearest neighbors
+```{r}
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Social_Network_Ads.csv')
+dataset = dataset[, c(3:5)]
+dataset$Purchased = factor(dataset$Purchased, levels = c(0, 1))
+dataset[, -ncol(dataset)] = scale(dataset[, -ncol(dataset)])
+set.seed(123)
+split = sample.split(dataset$Purchased, SplitRatio = 0.75)
+training.set = subset(dataset, split == T)
+test.set = subset(dataset, split == F)
+
+# K-value choosing
+library('class')
+library('caret')
+library('scales')
+accuracy.set = data.frame(k = seq(1, 20, 1), accuracy = rep(0, 20))
+for (i in 1:20) {
+    y.pred = knn(train = training.set[, -3], 
+                 test = test.set[, -3],
+                 cl = training.set[, 3],
+                 k = i)
+    accuracy.set[i, 2] = confusionMatrix(y.pred, 
+                                         test.set[, 3])$overall[1]
+}
+ggplot(data = accuracy.set, aes(x = k, y = accuracy)) +
+    geom_point() +
+    geom_line(linetype = 'dashed') +
+    scale_x_continuous(breaks = pretty_breaks(nrow(accuracy.set))) +
+    scale_y_continuous(breaks = pretty_breaks()) +
+    labs(title = 'Accuracy vs K-value',
+         subtitle = 'Best KNN',
+         x = 'K-value',
+         y = 'Accuracy')
+
+# Real time searching
+y.pred = knn(train = training.set[, -3],
+             test = test.set[, -3],
+             cl = training.set[, 3],
+             k = 4)
+
+# Confusion matrix evaluating
+confusionMatrix(y.pred, test.set[, 3])
+
+# Model visualising
+set = training.set
+X1 = seq(min(set[, 1]) - 1, max(set[, 1]) + 1, by = 0.01)
+X2 = seq(min(set[, 2]) - 1, max(set[, 2]) + 1, by = 0.01)
+grid.set = expand.grid(X1, X2)
+colnames(grid.set) = c('Age', 'EstimatedSalary')
+y.grid = knn(train = training.set[, -3],
+             test = grid.set,
+             cl = training.set[, 3],
+             k = 4)
+plot(set[, -3],
+     main = 'KNN (Training set)',
+     xlab = 'Age', ylab = 'Estimated salary',
+     xlim = range(X1), 
+     ylim = range(X2))
+points(grid.set, pch = '.', 
+       col = ifelse(y.grid == 1, 'springgreen3', 'tomato'))
+points(set, pch = 21, 
+       bg = ifelse(set[, 3] == 1, 'green4', 'red3'))
+set = test.set
+plot(set[, -3],
+     main = 'KNN (Test set)',
+     xlab = 'Age', ylab = 'Estimated salary',
+     xlim = range(X1), 
+     ylim = range(X2))
+points(grid.set, pch = '.', 
+       col = ifelse(y.grid == 1, 'springgreen3', 'tomato'))
+points(set, pch = 21, 
+       bg = ifelse(set[, 3] == 1, 'green4', 'red3'))
+```
+1. It needs to apply feature scaling due to measuring by euclidean distance.
+2. It does not need to use a model but just use real time searching, which is also called as lazy learner.
+3. It is a time consuming model due to the process of real time searching.
+4. It is a non-linear classification model.
+5. When having the same accuracy in multiple k values, choosing the lower k value is better due to the better ability of capturing the local structure.
+
+### Support vector machine
+```{r}
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Social_Network_Ads.csv')
+dataset = dataset[, c(3:5)]
+dataset$Purchased = factor(dataset$Purchased, levels = c(0, 1))
+dataset[, -ncol(dataset)] = scale(dataset[, -ncol(dataset)])
+set.seed(123)
+split = sample.split(dataset$Purchased, SplitRatio = 0.75)
+training.set = subset(dataset, split == T)
+test.set = subset(dataset, split == F)
+
+# Model fitting
+library('e1071')
+set.seed(123)
+mod = svm(Purchased ~ .,
+          data = training.set,
+          type = 'C-classification',
+          kernel = 'linear')
+summary(mod)
+
+# Prediction
+y.pred = predict(mod, newdata = test.set[, -3])
+
+# Confusion matrix evaluating
+library('caret')
+confusionMatrix(y.pred, test.set[, 3])
+
+# Model visualising
+set = training.set
+X1 = seq(min(set[, 1]) - 1, max(set[, 1]) + 1, by = 0.01)
+X2 = seq(min(set[, 2]) - 1, max(set[, 2]) + 1, by = 0.01)
+grid.set = expand.grid(X1, X2)
+colnames(grid.set) = c('Age', 'EstimatedSalary')
+y.grid = predict(mod, newdata = grid.set)
+plot(set[, -3],
+     main = 'SVM-L (Training set)',
+     xlab = 'Age', ylab = 'Estimated salary',
+     xlim = range(X1), 
+     ylim = range(X2))
+points(grid.set, pch = '.', 
+       col = ifelse(y.grid == 1, 'springgreen3', 'tomato'))
+points(set, pch = 21, 
+       bg = ifelse(set[, 3] == 1, 'green4', 'red3'))
+set = test.set
+plot(set[, -3],
+     main = 'SVM-L (Test set)',
+     xlab = 'Age', ylab = 'Estimated salary',
+     xlim = range(X1), 
+     ylim = range(X2))
+points(grid.set, pch = '.', 
+       col = ifelse(y.grid == 1, 'springgreen3', 'tomato'))
+points(set, pch = 21, 
+       bg = ifelse(set[, 3] == 1, 'green4', 'red3'))
+```
+1. It needs to apply feature scaling.
+2. It is a linear classification model based on the type of kernel chose.
+3. It suits for linearly seperable data.
+4. It is not biased by outliers.
+5. It is not sensitive to overfitting.
+
+### Kernel support vector machine
+```{r}
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Social_Network_Ads.csv')
+dataset = dataset[, c(3:5)]
+dataset$Purchased = factor(dataset$Purchased, levels = c(0, 1))
+dataset[, -ncol(dataset)] = scale(dataset[, -ncol(dataset)])
+set.seed(123)
+split = sample.split(dataset$Purchased, SplitRatio = 0.75)
+training.set = subset(dataset, split == T)
+test.set = subset(dataset, split == F)
+
+# Model fitting
+library('e1071')
+set.seed(123)
+mod = svm(Purchased ~ .,
+          data = training.set,
+          type = 'C-classification',
+          kernel = 'radial')
+summary(mod)
+
+# Prediction
+y.pred = predict(mod, newdata = test.set[, -3])
+
+# Confusion matrix evaluating
+library('caret')
+confusionMatrix(y.pred, test.set[, 3])
+
+# Model visualising
+set = training.set
+X1 = seq(min(set[, 1]) - 1, max(set[, 1]) + 1, by = 0.01)
+X2 = seq(min(set[, 2]) - 1, max(set[, 2]) + 1, by = 0.01)
+grid.set = expand.grid(X1, X2)
+colnames(grid.set) = c('Age', 'EstimatedSalary')
+y.grid = predict(mod, newdata = grid.set)
+plot(set[, -3],
+     main = 'Kernel SVM-NL (Training set)',
+     xlab = 'Age', ylab = 'Estimated salary',
+     xlim = range(X1), 
+     ylim = range(X2))
+points(grid.set, pch = '.', 
+       col = ifelse(y.grid == 1, 'springgreen3', 'tomato'))
+points(set, pch = 21, 
+       bg = ifelse(set[, 3] == 1, 'green4', 'red3'))
+set = test.set
+plot(set[, -3],
+     main = 'Kernel SVM-NL (Test set)',
+     xlab = 'Age', ylab = 'Estimated salary',
+     xlim = range(X1),
+     ylim = range(X2))
+points(grid.set, pch = '.',
+       col = ifelse(y.grid == 1, 'springgreen3', 'tomato'))
+points(set, pch = 21,
+       bg = ifelse(set[, 3] == 1, 'green4', 'red3'))
+```
+1. It needs to apply feature scaling.
+2. It is a non-linear classification model based on the type of kernel chose.
+3. It suits for non-linearly seperable data.
+4. Mapping to a higher dimensional space, finding a linearly seperable solution, projecting back on the original dimension space, and having a non-linearly seperable solution is a way for this model. But, the downside of it is being highly compute-intensive. So, it is not preferable for this model.
+5. Without mapping to a higher dimensional space as a better way is the kernel function. So, kernel support vector machine is better used for non-linearly seperable data.
+6. The common types of kernel function are gaussian rbf (radial basis function) kernel (type = 'radial'), sigmoid kernel (type = 'sigmoid'), and polynomial kernel (type = 'polynomial').
+
+### Naive bayes
+```{r}
+## 1
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Social_Network_Ads.csv')
+dataset = dataset[, c(3:5)]
+dataset$Purchased = factor(dataset$Purchased, levels = c(0, 1))
+dataset[, -ncol(dataset)] = scale(dataset[, -ncol(dataset)])
+set.seed(123)
+split = sample.split(dataset$Purchased, SplitRatio = 0.75)
+training.set = subset(dataset, split == T)
+test.set = subset(dataset, split == F)
+
+# Model fitting
+library('e1071')
+mod = naiveBayes(x = training.set[, -3],
+                 y = training.set[, 3])
+
+# Prediction
+y.pred = predict(mod, newdata = test.set[, -3])
+
+# Confusion matrix evaluating
+library('caret')
+confusionMatrix(y.pred, test.set[, 3])
+
+# Model visualising
+set = training.set
+X1 = seq(min(set[, 1]) - 1, max(set[, 1]) + 1, by = 0.01)
+X2 = seq(min(set[, 2]) - 1, max(set[, 2]) + 1, by = 0.01)
+grid.set = expand.grid(X1, X2)
+colnames(grid.set) = c('Age', 'EstimatedSalary')
+y.grid = predict(mod, newdata = grid.set)
+plot(set[, -3],
+     main = 'Naive bayes (Training set)',
+     xlab = 'Age', ylab = 'Estimated salary',
+     xlim = range(X1), 
+     ylim = range(X2))
+points(grid.set, pch = '.', 
+       col = ifelse(y.grid == 1, 'springgreen3', 'tomato'))
+points(set, pch = 21, 
+       bg = ifelse(set[, 3] == 1, 'green4', 'red3'))
+set = test.set
+plot(set[, -3],
+     main = 'Naive bayes (Test set)',
+     xlab = 'Age', ylab = 'Estimated salary',
+     xlim = range(X1),
+     ylim = range(X2))
+points(grid.set, pch = '.',
+       col = ifelse(y.grid == 1, 'springgreen3', 'tomato'))
+points(set, pch = 21,
+       bg = ifelse(set[, 3] == 1, 'green4', 'red3'))
+
+## 2
+# fit = train(data = training, y ~ ., method = "nb")
+# pred = predict(fit, newdata = testing)
+```
+1. It needs to apply feature scaling.
+2. It is a non-linear classification model.
+3. It is not biased by outliers.
+4. Good: fast speed, reasonably accurate.
+5. Bad: additional assumptions needed.
+
+### Decision tree classification
+```{r}
+## 1
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Social_Network_Ads.csv')
+dataset = dataset[, c(3:5)]
+dataset$Purchased = factor(dataset$Purchased, levels = c(0, 1))
+set.seed(123)
+split = sample.split(dataset$Purchased, SplitRatio = 0.75)
+training.set = subset(dataset, split == T)
+test.set = subset(dataset, split == F)
+# # Only for model visualising to scaling here
+# training.set[, -ncol(dataset)] = scale(training.set[, -ncol(dataset)])
+# test.set[, -ncol(dataset)] = scale(test.set[, -ncol(dataset)])
+
+# Model fitting
+library('rpart')
+set.seed(123)
+mod = rpart(Purchased ~ .,
+            data = training.set,
+            method = 'class',
+            control = rpart.control(xval = 10))
+
+# Tree pruning
+plotcp(mod)
+# mod = prune(mod, cp = XXX) # from cptable
+printcp(mod)
+
+# Generating the tree and the rule
+library('rpart.plot')
+options(scipen = 999)
+prp(mod, roundint = F, type = 3, extra = 101, under = T, digits = -2,
+    box.palette = 'auto')
+
+# Prediction
+y.pred = predict(mod, newdata = test.set[, -3], type = 'class')
+
+# Confusion matrix evaluating
+library('caret')
+confusionMatrix(y.pred, test.set[, 3])
+
+# # Model visualising
+# set = training.set
+# X1 = seq(min(set[, 1]) - 1, max(set[, 1]) + 1, by = 0.01)
+# X2 = seq(min(set[, 2]) - 1, max(set[, 2]) + 1, by = 0.01)
+# grid.set = expand.grid(X1, X2)
+# colnames(grid.set) = c('Age', 'EstimatedSalary')
+# y.grid = predict(mod, newdata = grid.set, type = 'class')
+# plot(set[, -3],
+#      main = 'CART-C (Training set)',
+#      xlab = 'Age', ylab = 'Estimated salary',
+#      xlim = range(X1),
+#      ylim = range(X2))
+# points(grid.set, pch = '.',
+#        col = ifelse(y.grid == 1, 'springgreen3', 'tomato'))
+# points(set, pch = 21,
+#        bg = ifelse(set[, 3] == 1, 'green4', 'red3'))
+# set = test.set
+# plot(set[, -3],
+#      main = 'CART-C (Test set)',
+#      xlab = 'Age', ylab = 'Estimated salary',
+#      xlim = range(X1),
+#      ylim = range(X2))
+# points(grid.set, pch = '.',
+#        col = ifelse(y.grid == 1, 'springgreen3', 'tomato'))
+# points(set, pch = 21,
+#        bg = ifelse(set[, 3] == 1, 'green4', 'red3'))
+
+## 2
+# fit = train(data = training, y ~ ., method = "rpart")
+# mod = fit$FinalModel
+# fancyRpartPlot(mod) # library(rattle)
+# pred = predict(fit, newdata = testing) # prediction # classification - type
+# confusionMatrix(pred, testing$y) # evaluation
+```
+1. It does not need to apply feature scaling since it does not need to use the concept of eulidean distance. But, due to the needing of model visualising, it has to scale up for a doable number scale. But, it would cause insimplicity for the tree and the rule. 
+2. The tree and the rule need to rerun without feature scaling.
+3. Good: easy to interpret, better performance in nonlinear settings.
+4. Bad: without pruning/cross-validation can lead to over fitting, unstable with uncertainty.
+5. Bagging process can extend to random forest classification.
+
+### Random forest classification
+```{r}
+## 1
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Social_Network_Ads.csv')
+dataset = dataset[, c(3:5)]
+dataset$Purchased = factor(dataset$Purchased, levels = c(0, 1))
+set.seed(123)
+split = sample.split(dataset$Purchased, SplitRatio = 0.75)
+training.set = subset(dataset, split == T)
+test.set = subset(dataset, split == F)
+# # Only for model visualising to scaling here
+training.set[, -ncol(dataset)] = scale(training.set[, -ncol(dataset)])
+test.set[, -ncol(dataset)] = scale(test.set[, -ncol(dataset)])
+
+# Model fitting
+library('randomForest')
+set.seed(123)
+mod = randomForest(Purchased ~ .,
+                   data = training.set,
+                   ntree = 500)
+
+# Variable importance
+importance(mod)
+varImpPlot(mod, 
+           main = 'RF-C_Variable contribution')
+
+# Prediction
+y.pred = predict(mod, newdata = test.set[, -3], type = 'class')
+
+# Confusion matrix evaluating
+library('caret')
+confusionMatrix(y.pred, test.set[, 3])
+
+# Model visualising
+set = training.set
+X1 = seq(min(set[, 1]) - 1, max(set[, 1]) + 1, by = 0.01)
+X2 = seq(min(set[, 2]) - 1, max(set[, 2]) + 1, by = 0.01)
+grid.set = expand.grid(X1, X2)
+colnames(grid.set) = c('Age', 'EstimatedSalary')
+y.grid = predict(mod, newdata = grid.set, type = 'class')
+plot(set[, -3],
+     main = 'RF-C (Training set)',
+     xlab = 'Age', ylab = 'Estimated salary',
+     xlim = range(X1),
+     ylim = range(X2))
+points(grid.set, pch = '.',
+       col = ifelse(y.grid == 1, 'springgreen3', 'tomato'))
+points(set, pch = 21,
+       bg = ifelse(set[, 3] == 1, 'green4', 'red3'))
+set = test.set
+plot(set[, -3],
+     main = 'RF-C (Test set)',
+     xlab = 'Age', ylab = 'Estimated salary',
+     xlim = range(X1),
+     ylim = range(X2))
+points(grid.set, pch = '.',
+       col = ifelse(y.grid == 1, 'springgreen3', 'tomato'))
+points(set, pch = 21,
+       bg = ifelse(set[, 3] == 1, 'green4', 'red3'))
+
+## 2
+# fit = train(data = training,
+#             y ~ .,
+#             method = "rf",
+#             prox = T)
+# mod = fit$finalModel
+# getTree(mod, k = 2) # get the 2th tree
+# pred = predict(fit, newdata = testing)
+# confusionMatrix(pred, testing$y)
+# testing$pred.right = pred == testing$y # a way to show up the right classification
+# qplot(data = testing, x, y, col = pred.right, main = "newdata predictions")
+```
+1. It is an ensemble learning, good at stable and accurate, bad at intransparent, a non-linear model, a non-needed feature scaling model, a non-continuous model.
+2. Good: accuracy.
+3. Bad: slow speed, less interpretability, easy overfitting.
+
+### XGBoost
+```{r}
+## 1
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Churn_Modelling.csv')
+dataset = dataset[, c(4:14)]
+dataset$Geography = as.numeric(factor(dataset$Geography,
+                                      levels = c('France', 
+                                                 'Spain', 
+                                                 'Germany'),
+                                      labels = c(1, 2, 3)))
+dataset$Gender = as.numeric(factor(dataset$Gender,
+                                   levels = c('Female', 
+                                              'Male'),
+                                   labels = c(1, 2)))
+set.seed(123)
+split = sample.split(dataset$Exited, SplitRatio = 0.75)
+training.set = subset(dataset, split == T)
+test.set = subset(dataset, split == F)
+
+# Model fitting
+library('xgboost')
+mod = xgboost(data = as.matrix(training.set[, -ncol(training.set)]),
+              label = training.set$Exited, 
+              nrounds = 10)
+
+# Prediction
+y.pred = predict(mod, newdata = as.matrix(test.set[, -11]))
+y.pred = ifelse(y.pred >= 0.5, 1, 0)
+
+# Confusion matrix evaluating
+library('caret')
+confusionMatrix(table(y.pred, test.set[, 11]))
+
+# K-fold cross validation applying
+library('caret')
+folds = createFolds(training.set$Exited, k = 10)
+cv = lapply(folds, function(x) {
+    training.fold = training.set[-x, ]
+    test.fold = training.set[x, ]
+    mod = xgboost(data = as.matrix(training.fold[, -11]), 
+                  label = training.fold$Exited, 
+                  nrounds = 10)
+    y.pred = predict(mod, newdata = as.matrix(test.fold[, -11]))
+    y.pred = ifelse(y.pred >= 0.5, 1, 0)
+    cm = confusionMatrix(table(y.pred, test.fold[, 11]))
+    accuracy = as.numeric(cm$overall[1])
+    return(accuracy)
+})
+accuracy = mean(as.numeric(cv))
+
+## 2
+# fit = train(data = training, y ~ ., method = "gbm", verbose = F) ## gbmboost for random forest classification boosting
+# pred = predict(fit, newdata = testing)
+# mod = fit$finalModel
+# summary(mod)
+```
+1. High performance, Accurate quality, Fast execution speed, Maintain interpretation (no need for scaling).
+2. This part contains the model selection, that can stablize the accuracy (K-fold cross validation).
+3, Other boostings, such as adaboost, gbmboost, mboost, gamboost, and gradient boosting, are in different algorithm reinforcement. The simple meaning is about gathering the weak predictors and weight them and add them up to become a strong predictor and use it.
+4. Boosting can be used with any subset of classifiers.
+
+# Clustering
+1. Unsupervised learning, have no label variable or only independent variables or no correct answer.
+2. Due to no label (y), it is no way to evaluate and no need to do data seperation.
+3. Basic approach to recommendation engine.
+
+### K-means clustering
+```{r}
+## 1
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Mall_Customers.csv')
+dataset = dataset[, c(4:5)]
+dataset = scale(dataset)
+
+# K-value choosing
+library('scales')
+set.seed(123)
+wcss.set = data.frame(k = seq(1, 20, 1), wcss = rep(0, 20))
+for (i in 1:20) {wcss.set[i, 2] = kmeans(dataset, i)$tot.withinss}
+ggplot(data = wcss.set, aes(x = k, y = wcss)) +
+    geom_point() +
+    geom_line(linetype = 'dashed') +
+    scale_x_continuous(breaks = pretty_breaks(nrow(wcss.set))) +
+    scale_y_continuous(breaks = pretty_breaks()) +
+    labs(title = 'WCSS vs K-value',
+         subtitle = 'Best K-means clustering',
+         x = 'Number of cluster',
+         y = 'WCSS')
+library('factoextra')
+fviz_nbclust(dataset, kmeans)
+
+# Real time searching
+set.seed(123)
+mod = kmeans(dataset, 6, nstart = 50)
+
+# Model visualising
+fviz_cluster(mod, data = dataset,
+             stand = F, show.clust.cent = F, labelsize = 10,
+             main = 'K-means clustering')
+
+## 2
+# Data and package loading
+library(caret)
+data(iris)
+set.seed(123)
+
+# Data preprocessing
+split = createDataPartition(y = iris$Species, p = 0.7, list = F)
+training = iris[split, ]
+testing = iris[-split, ]
+
+# Create cluster (k-means)
+mod = kmeans(subset(training, select = -c(Species)), 
+             centers = 3, nstart = 50)
+
+# Name cluster
+training$cluster = as.factor(mod$cluster)
+
+# Evaluate on training set
+table(mod$cluster, training$Species)
+
+# Build predictor
+fit = train(cluster ~ .,
+            data = subset(training, select = -c(Species)),
+            method = "rpart")
+
+# Apply on test set
+pred = predict(fit, newdata = testing)
+testing$cluster = as.factor(pred)
+
+# Evaluate on test set
+table(pred, testing$Species)
+```
+1. It is a non-hierarchical clustering.
+2. It needs to apply feature scaling due to measuring by euclidean distance.
+3. Non-hierarchical clustering is like random forest (stable and accuracy), and hierarchical clustering is like decision tree (transparency and interpretability).
+4. It is appropriate for large datasets.
+
+### Hierarchical clustering
+```{r}
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Mall_Customers.csv')
+dataset = dataset[, c(4:5)]
+dataset = scale(dataset)
+
+# Number of clusters choosing
+library('factoextra')
+fviz_nbclust(dataset, hcut)
+
+# Model fitting
+mod = hclust(dist(dataset, method = 'euclidean'), method = 'ward.D')
+
+# Tree pruning
+mod.cluster = cutree(mod, 5)
+
+# Tree generating
+fviz_dend(mod, k = 5, show_labels = T, rect = F,
+          main = 'Dendrogram',
+          xlab = 'Customer',
+          ylab = 'Euclidean distance')
+
+# Model visualising
+fviz_cluster(list(data = dataset, cluster = mod.cluster),
+             stand = F, show.clust.cent = F, labelsize = 10,
+             main = 'Hierarchical clustering')
+```
+1. It needs to apply feature scaling due to measuring by euclidean distance.
+2. Distance method: eucidean distance, statistical distance, absolute distance, correlaion-base similarity, maximum corridinate distance, matching coefficient, jaquard's coefficient.
+3. It uses the method (ward.D), that is minimized within cluster variance.
+4. Cluster center: minimum distance, maximum distance, average distance, centroid distance.
+5. Using silhouette plot can have the optimal number of clusters.
+6. It is computationally expensive, low stable, and sensitive to outliers, but good at easily understanding and interpreting (tree).
+
+# Association rule learning
+1. Unsupervised learning, have no label variable or only independent variables or no correct answer.
+
+### Apriori
+```{r, message = F, warning = F}
+# Data preprocessing
+rm(list = ls())
+library('arules')
+dataset = read.transactions('Market_Basket_Optimisation.csv',
+                            sep = ',',
+                            rm.duplicates = T)
+
+# Model fitting
+mod = apriori(data = dataset,
+              parameter = list(support = 0.003,
+                               confidence = 0.2))
+mod.sub = mod[quality(mod)$confidence > 0.5]
+
+# Rule tabling
+rule.all = inspect(sort(mod, by = 'lift'))
+rule.sub.all = inspect(sort(mod.sub, by = 'lift'))
+rule.sub.top10 = inspect(head(mod.sub, n = 10, by = 'lift'))
+
+# Model visualising
+library('RColorBrewer')
+itemFrequencyPlot(dataset, topN = 10, name = T,
+                  main = 'Apriori',
+                  ylab = 'Support',
+                  col = brewer.pal(8, 'Pastel2'))
+library('arulesViz')
+# scatter & non-interactive
+plot(mod.sub, method = 'scatterplot', jitter = 0)
+# scatter & interactive
+plotly_arules(mod.sub) 
+# network & interactive
+plot(mod.sub, method = 'graph', engine = 'htmlwidget')
+```
+1. It can not take the dataset as a dataframe but use the dataset as a sparsity matrix.
+2. It needs to get rid of the duplicate data.
+3. It needs to set two important parameters. Support < Confidence, so Lift increases. Support depends on the business decision. Confidence can set on 0.8 which is the default, then it can be divided by a half. Keeping doing this and inspecting rules to make sure there is no distrubance from high frequenct items in the lhs could finally have potential association rules, then goes through these rules to filter out for the meaningful association rules.
+4. It can explain as buying the lhs can have the percentage (confidence) to also buy the rhs.
+5. The business strategy would be decreasing the price of the lhs (lose profit) and increasing the price of the rhs (gain profit). Totally, the sell would go up.
+
+### Eclat
+```{r}
+# Data preprocessing
+rm(list = ls())
+library('arules')
+dataset = read.transactions('Market_Basket_Optimisation.csv',
+                            sep = ',',
+                            rm.duplicates = T)
+
+# Model fitting
+mod = eclat(data = dataset,
+            parameter = list(support = 0.004,
+                             minlen = 2))
+mod.sub = mod[quality(mod)$support > 0.01]
+
+# Rule tabling
+rule.all = inspect(sort(mod, by = 'support'))
+rule.sub.all = inspect(sort(mod.sub, by = 'support'))
+rule.sub.top10 = inspect(head(mod.sub, n = 10, by = 'support'))
+
+# Model visualising
+library('RColorBrewer')
+itemFrequencyPlot(dataset, topN = 10, name = T,
+                  main = 'Eclat',
+                  ylab = 'Support',
+                  col = brewer.pal(8, 'Pastel2'))
+library('arulesViz')
+# scatter & non-interactive
+plot(mod.sub, method = 'scatterplot', jitter = 0)
+```
+1. It only has one important parameter, support. Also, it has only the rule of a set of product that frequently buys together, but not a rule of a percentage if buying a then also buying b.
+
+# Reinforcement learning
+1. Reinforcement learning, have no any variable or no data.
+2. Reinforcement learning is also called as online learning or interactive learning.
+3. Focusing on the multi-armed bandit problem, which is about not have time or money for ab test, and need to do it on the fly directly. So, UCB and TS would give a better outcome than a random one.
+4. Other reinforcement Learning models are such as Q-Learning, Deep Learning, Deep Q-Learning, Convolutional Neural Networks, Deep Convolutional Q-Learning, etc.
+
+### Upper confidence bound
+```{r}
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Ads_CTR_Optimisation.csv')
+
+# Implementing UCB
+N = 10000
+d = 10
+ads_selected = integer(0)
+numbers_of_selections = integer(d)
+sums_of_rewards = integer(d)
+total_reward = 0
+for (n in 1:N) {
+    ad = 0
+    max_upper_bound = 0
+    for (i in 1:d) {
+        if (numbers_of_selections[i] > 0) {
+            average_reward = sums_of_rewards[i] / numbers_of_selections[i]
+            delta_i = sqrt(3/2 * log(n) / numbers_of_selections[i])
+            upper_bound = average_reward + delta_i
+        } else {
+            upper_bound = 1e400
+        }
+        if (upper_bound > max_upper_bound) {
+            max_upper_bound = upper_bound
+            ad = i
+        }
+    }
+    ads_selected = append(ads_selected, ad)
+    numbers_of_selections[ad] = numbers_of_selections[ad] + 1
+    reward = dataset[n, ad]
+    sums_of_rewards[ad] = sums_of_rewards[ad] + reward
+    total_reward = total_reward + reward
+}
+
+# Visualising the results
+hist(ads_selected,
+     col = 'blue',
+     main = 'UCB',
+     xlab = 'Ads',
+     ylab = 'Number of times each ad was selected')
+```
+1. Random condition's total reward is around 1200-1300.
+2. UCB's total reward is around 2180.
+3. It is deterministic.
+
+### Thompson sampling
+```{r}
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Ads_CTR_Optimisation.csv')
+
+# Implementing Thompson Sampling
+N = 10000
+d = 10
+ads_selected = integer(0)
+numbers_of_rewards_1 = integer(d)
+numbers_of_rewards_0 = integer(d)
+total_reward = 0
+for (n in 1:N) {
+    ad = 0
+    max_random = 0
+    for (i in 1:d) {
+        random_beta = rbeta(n = 1,
+                            shape1 = numbers_of_rewards_1[i] + 1,
+                            shape2 = numbers_of_rewards_0[i] + 1)
+        if (random_beta > max_random) {
+            max_random = random_beta
+            ad = i
+        }
+    }
+    ads_selected = append(ads_selected, ad)
+    reward = dataset[n, ad]
+    if (reward == 1) {
+        numbers_of_rewards_1[ad] = numbers_of_rewards_1[ad] + 1
+    } else {
+        numbers_of_rewards_0[ad] = numbers_of_rewards_0[ad] + 1
+    }
+    total_reward = total_reward + reward
+}
+
+# Visualising the results
+hist(ads_selected,
+     col = 'blue',
+     main = 'TS',
+     xlab = 'Ads',
+     ylab = 'Number of times each ad was selected')
+```
+1. Random condition's total reward is around 1200-1300.
+2. TS's total reward is around 2600.
+3. It is proabilistic and has a better empirical evidence.
+
+# Natural language processing
+1. It contains two parts, including a bag of words model and a classification model.
+2. Supervised learning, having a label variable or dependent variable or correct answer.
+3. It still needs to know how to implement with validation dataset.
+
+### NLP
+```{r}
+rm(list = ls())
+
+# Bag of words model
+# Data preprocessing
+dataset = read.delim('Restaurant_Reviews.tsv',
+                     quote = '',
+                     stringsAsFactors = F)
+# Text cleaning
+library('tm')
+library('SnowballC')
+corpus = VCorpus(VectorSource(dataset$Review)) # extract word
+corpus = tm_map(corpus, 
+                content_transformer(tolower)) # lowercase tranform
+corpus = tm_map(corpus, removeNumbers) # remove number
+corpus = tm_map(corpus, removePunctuation) # remove punctuation
+corpus = tm_map(corpus, removeWords,
+                stopwords()) # remove irrelvant word
+corpus = tm_map(corpus, stemDocument) # get to the root of word
+corpus = tm_map(corpus, stripWhitespace) # remove extra space
+# as.character(corpus[[1]]) # check
+# Model creating
+dtm = DocumentTermMatrix(corpus)
+dtm = removeSparseTerms(dtm, 
+                        sparse = 0.999) # filter nonfrequent word
+
+# Classification model of random forest
+# Data transforming
+dataset = as.data.frame(as.matrix(dtm))
+dataset.ori = read.delim('Restaurant_Reviews.tsv',
+                         quote = '',
+                         stringsAsFactors = F)
+dataset$Liked = dataset.ori$Liked
+# Data preprocessing
+dataset$Liked = factor(dataset$Liked, levels = c(0, 1))
+# which(colnames(dataset) == 'break') # debug
+# which(colnames(dataset) == 'next') # debug
+dataset = dataset[, -c(80, 406)]
+set.seed(123)
+split = sample.split(dataset$Liked, SplitRatio = 0.8)
+training.set = subset(dataset, split == T)
+test.set = subset(dataset, split == F)
+# Model fitting
+library('randomForest')
+set.seed(123)
+mod = randomForest(Liked ~ .,
+                   data = training.set,
+                   ntree = 500)
+# Prediction
+y.pred = predict(mod,
+                 newdata = test.set[, -ncol(test.set)],
+                 type = 'class')
+# Confusion matrix evaluating
+library('caret')
+cm = confusionMatrix(y.pred, test.set[, ncol(test.set)])
+ac = cm$overall['Accuracy']
+f1 = cm$byClass['F1']
+```
+
+# Artificial neural networks
+
+### ANN for classification
+```{r}
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Churn_Modelling.csv')
+dataset = dataset[, -c(1:3)]
+# Encoding the categorical variables as factors in numeric
+dataset$Geography = as.numeric(
+    factor(dataset$Geography,
+           levels = c('France', 'Spain', 'Germany'),
+           labels = c(1, 2, 3)))
+dataset$Gender = as.numeric(
+    factor(dataset$Gender,
+           levels = c('Female', 'Male'),
+           labels = c(1, 2)))
+dataset[, -ncol(dataset)] = scale(dataset[, -ncol(dataset)])
+set.seed(123)
+split = sample.split(dataset$Exited, SplitRatio = 0.75)
+training.set = subset(dataset, split == T)
+test.set = subset(dataset, split == F)
+
+# Model fitting
+library('h2o')
+h2o.init(nthreads = -1)
+mod = h2o.deeplearning(y = 'Exited',
+                      training_frame = as.h2o(training.set),
+                      activation = 'Rectifier',
+                      hidden = c(6, 6),
+                      epochs = 100,
+                      train_samples_per_iteration = -2)
+
+# Prediction
+y.pred = h2o.predict(mod, newdata = as.h2o(test.set[, -11]))
+y.pred = (y.pred > 0.5)
+y.pred = as.vector(y.pred)
+
+# Confusion matrix evaluating
+cm = table(y.pred, test.set[, 11])
+confusionMatrix(cm)
+
+# Disconnection
+# h2o.shutdown()
+```
+1. ANN model takes only numeric variables, so it no needs to change the dependent variable and needs to change the categorical independent variables.
+
+# Dimensionality reduction
+1. Feature selection is also variable selection and is already mentioned in multiple linear regression.
+2. Feature extraction: Linear dataset: PCA, LDA; Non-linear dataset: Kernel PCA.
+
+### Pricipal component analysis
+```{r}
+## 1
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Wine.csv')
+dataset[, -ncol(dataset)] = scale(dataset[, -ncol(dataset)])
+set.seed(123)
+split = sample.split(dataset$Customer_Segment, SplitRatio = 0.8)
+training.set = subset(dataset, split == T)
+test.set = subset(dataset, split == F)
+
+# PCA applying
+library('caret')
+library('e1071')
+pca = preProcess(x = training.set[, -ncol(training.set)],
+                 method = 'pca',
+                 pcaComp = 2)
+training.set = predict(pca, training.set)
+training.set = training.set[, c(2, 3, 1)]
+test.set = predict(pca, test.set)
+test.set = test.set[, c(2, 3, 1)]
+
+# Model fitting
+library('e1071')
+set.seed(123)
+mod = svm(Customer_Segment ~ .,
+          data = training.set,
+          type = 'C-classification',
+          kernel = 'linear')
+summary(mod)
+
+# Prediction
+y.pred = predict(mod, newdata = test.set[, -3])
+
+# Confusion matrix evaluating
+library('caret')
+confusionMatrix(table(y.pred, test.set[, 3]))
+
+# Model visualising
+set = training.set
+X1 = seq(min(set[, 1]) - 1, max(set[, 1]) + 1, by = 0.01)
+X2 = seq(min(set[, 2]) - 1, max(set[, 2]) + 1, by = 0.01)
+grid.set = expand.grid(X1, X2)
+colnames(grid.set) = c('PC1', 'PC2')
+y.grid = predict(mod, newdata = grid.set)
+plot(set[, -3],
+     main = 'SVM-L (Training set)',
+     xlab = 'PC1', ylab = 'PC2',
+     xlim = range(X1), 
+     ylim = range(X2))
+points(grid.set, pch = '.', 
+       col = ifelse(y.grid == 2, 'deepskyblue',
+                    ifelse(y.grid == 1, 'springgreen3', 'tomato')))
+points(set, pch = 21, 
+       bg = ifelse(set[, 3] == 2, 'blue3',
+                   ifelse(set[, 3] == 1, 'green4', 'red3')))
+set = test.set
+plot(set[, -3],
+     main = 'SVM-L (Test set)',
+     xlab = 'PC1', ylab = 'PC2',
+     xlim = range(X1), 
+     ylim = range(X2))
+points(grid.set, pch = '.', 
+       col = ifelse(y.grid == 2, 'deepskyblue',
+                    ifelse(y.grid == 1, 'springgreen3', 'tomato')))
+points(set, pch = 21, 
+       bg = ifelse(set[, 3] == 2, 'blue3',
+                   ifelse(set[, 3] == 1, 'green4', 'red3')))
+
+## 2
+# pca = preProcess(x = training[, -ncol(training)], method = 'pca', pcaComp = 2 | thresh = 0.8 or 0.9)
+# training = predict(pca, training)
+# testing = predict(pca, testing)
+```
+1. It is a unsupervised learning, the reduction model uses the indenpendent variables (x), also dataset is linear-seperable.
+2. It captures the variable with the most variation.
+3. It is highly affected by outliers.
+4. It is highly useful for dimensional reduction for the independent variables.
+
+### Linear discriminant analysis
+```{r}
+## 1
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Wine.csv')
+dataset[, -ncol(dataset)] = scale(dataset[, -ncol(dataset)])
+set.seed(123)
+split = sample.split(dataset$Customer_Segment, SplitRatio = 0.8)
+training.set = subset(dataset, split == T)
+test.set = subset(dataset, split == F)
+
+# LDA applying
+library('MASS')
+lda = lda(formula = Customer_Segment ~ .,
+          data = training.set)
+training.set = predict(lda, training.set) %>% as.data.frame()
+training.set = training.set[, c(5, 6, 1)]
+test.set = predict(lda, test.set) %>% as.data.frame()
+test.set = test.set[, c(5, 6, 1)]
+
+# Model fitting
+library('e1071')
+set.seed(123)
+mod = svm(class ~ .,
+          data = training.set,
+          type = 'C-classification',
+          kernel = 'linear')
+summary(mod)
+
+# Prediction
+y.pred = predict(mod, newdata = test.set[, -3])
+
+# Confusion matrix evaluating
+library('caret')
+confusionMatrix(table(y.pred, test.set[, 3]))
+
+# Model visualising
+set = training.set
+X1 = seq(min(set[, 1]) - 1, max(set[, 1]) + 1, by = 0.01)
+X2 = seq(min(set[, 2]) - 1, max(set[, 2]) + 1, by = 0.01)
+grid.set = expand.grid(X1, X2)
+colnames(grid.set) = c('x.LD1', 'x.LD2')
+y.grid = predict(mod, newdata = grid.set)
+plot(set[, -3],
+     main = 'SVM-L (Training set)',
+     xlab = 'LD1', ylab = 'LD2',
+     xlim = range(X1), 
+     ylim = range(X2))
+points(grid.set, pch = '.', 
+       col = ifelse(y.grid == 2, 'deepskyblue',
+                    ifelse(y.grid == 1, 'springgreen3', 'tomato')))
+points(set, pch = 21, 
+       bg = ifelse(set[, 3] == 2, 'blue3',
+                   ifelse(set[, 3] == 1, 'green4', 'red3')))
+set = test.set
+plot(set[, -3],
+     main = 'SVM-L (Test set)',
+     xlab = 'LD1', ylab = 'LD2',
+     xlim = range(X1), 
+     ylim = range(X2))
+points(grid.set, pch = '.', 
+       col = ifelse(y.grid == 2, 'deepskyblue',
+                    ifelse(y.grid == 1, 'springgreen3', 'tomato')))
+points(set, pch = 21, 
+       bg = ifelse(set[, 3] == 2, 'blue3',
+                   ifelse(set[, 3] == 1, 'green4', 'red3')))
+
+## 2
+# lda = train(data = training, y ~ ., method = "lda")
+# training = predict(lda, training)
+# testing = predict(lda, testing)
+```
+1. It is a supervised learning, the reduction model uses only the dependent variable (y), also dataset is linear-seperable.
+2. It maximize the separation of known categories.
+3. It is highly affected by outliers.
+4. It is highly useful for dimensional reduction for the dependent variable.
+5. It projects the dependent variable classification from high dimension (m) to lower dimension (m-1).
+
+### Kernel pricipal component analysis
+```{r}
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Social_Network_Ads.csv')
+dataset = dataset[, c(3:5)]
+dataset$Purchased = factor(dataset$Purchased, levels = c(0, 1))
+dataset[, -ncol(dataset)] = scale(dataset[, -ncol(dataset)])
+set.seed(123)
+split = sample.split(dataset$Purchased, SplitRatio = 0.75)
+training.set = subset(dataset, split == T)
+test.set = subset(dataset, split == F)
+
+# Kernel PCA applying
+library('kernlab')
+kpca = kpca(~.,
+            data = training.set[, -3],
+            kernel = 'rbfdot',
+            features = 2)
+training.set.pca = predict(kpca, training.set) %>% as.data.frame()
+training.set.pca$Purchased = training.set$Purchased
+test.set.pca = predict(kpca, test.set) %>% as.data.frame()
+test.set.pca$Purchased = test.set$Purchased
+
+# Model fitting
+mod = glm(Purchased ~ .,
+          data = training.set.pca,
+          family = binomial)
+summary(mod)
+
+# Prediction
+y.pred.prob = predict(mod, type = 'response', 
+                      newdata = test.set.pca[, -3])
+y.pred = factor(ifelse(y.pred.prob > 0.5, 1, 0), levels = c(0, 1))
+
+# Confusion matrix evaluating
+library('caret')
+confusionMatrix(y.pred, test.set.pca[, 3])
+
+# Model visualising
+set = training.set.pca
+X1 = seq(min(set[, 1]) - 1, max(set[, 1]) + 1, by = 0.01)
+X2 = seq(min(set[, 2]) - 1, max(set[, 2]) + 1, by = 0.01)
+grid.set = expand.grid(X1, X2)
+colnames(grid.set) = c('V1', 'V2')
+y.grid.prob = predict(mod, type = 'response',
+                      newdata = grid.set)
+y.grid = factor(ifelse(y.grid.prob > 0.5, 1, 0), levels = c(0, 1))
+plot(set[, -3],
+     main = 'Logistic regression (Training set)',
+     xlab = 'PC1', ylab = 'PC2',
+     xlim = range(X1), 
+     ylim = range(X2))
+points(grid.set, pch = '.', 
+       col = ifelse(y.grid == 1, 'springgreen3', 'tomato'))
+points(set, pch = 21, 
+       bg = ifelse(set[, 3] == 1, 'green4', 'red3'))
+set = test.set.pca
+plot(set[, -3],
+     main = 'Logistic regression (Test set)',
+     xlab = 'PC1', ylab = 'PC2',
+     xlim = range(X1), 
+     ylim = range(X2))
+points(grid.set, pch = '.', 
+       col = ifelse(y.grid == 1, 'springgreen3', 'tomato'))
+points(set, pch = 21, 
+       bg = ifelse(set[, 3] == 1, 'green4', 'red3'))
+```
+1. It is a unsupervised learning, the reduction model uses the indenpendent variables (x), also dataset is non-linear-seperable.
+2. It captures the variable with the most variation.
+3. It is highly affected by outliers.
+4. It is highly useful for dimensional reduction for the independent variables.
+5. Its pricinple is just projecting the dataset to higher dimension due to becoming linear-seperable then using the PCA.
+
+# Model selection
+1. Its fuction is the model improvment.
+1. It has two types: K-fold cross validation (model learned), Grid search (manual choose; hyperparameter).
+
+### K-fold cross validation
+```{r}
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Social_Network_Ads.csv')
+dataset = dataset[, c(3:5)]
+dataset$Purchased = factor(dataset$Purchased, levels = c(0, 1))
+dataset[, -ncol(dataset)] = scale(dataset[, -ncol(dataset)])
+set.seed(123)
+split = sample.split(dataset$Purchased, SplitRatio = 0.75)
+training.set = subset(dataset, split == T)
+test.set = subset(dataset, split == F)
+
+# K-fold cross validation applying
+library('caret')
+library('e1071')
+folds = createFolds(training.set$Purchased, k = 10)
+cv = lapply(folds, function(x) {
+    training.fold = training.set[-x, ]
+    test.fold = training.set[x, ]
+    mod = svm(formula = Purchased ~ .,
+              data = training.fold,
+              type = 'C-classification',
+              kernel = 'radial')
+    y.pred = predict(mod, newdata = test.fold[, -3])
+    cm = confusionMatrix(table(y.pred, test.fold[, 3]))
+    accuracy = as.numeric(cm$overall[1])
+    return(accuracy)
+})
+accuracy = mean(as.numeric(cv))
+```
+1. One training set with one accuracy is no vairance for model performance. It provides the solution that can have bias-variance info by splitting the training set into multiple parts and use one for testing and others for training.
+
+### Grid search
+```{r}
+# Data preprocessing
+rm(list = ls())
+dataset = read.csv('Social_Network_Ads.csv')
+dataset = dataset[, c(3:5)]
+dataset$Purchased = factor(dataset$Purchased, levels = c(0, 1))
+dataset[, -ncol(dataset)] = scale(dataset[, -ncol(dataset)])
+set.seed(123)
+split = sample.split(dataset$Purchased, SplitRatio = 0.75)
+training.set = subset(dataset, split == T)
+test.set = subset(dataset, split == F)
+
+# Grid search applying for the best parameter (recommond)
+library('caret')
+mod = train(form = Purchased ~ .,
+            data = training.set,
+            method = 'svmRadial')
+
+# Grid search applying for the best parameter (cost)
+library('e1071')
+tu = tune(method = svm, 
+          Purchased ~ .,
+          data = training.set,
+          ranges = list(cost = 2^(1:10)))
+mod = tu$best.model
+```
+1. It likes the kernel parameter, the pentalty parameter, or regulization parameter.
+2. Grid search can find the optimal parameter for this value.
+3. First one is recommond. The link is for its method type tag. (https://tinyurl.com/y38u5kb3)
+
+# Model combination
+1. It is also called as an ensembl learning.
+2. One type is combining similar models, such as bagging, boosting, random forest.
+3. Another one is combining different models, which is about model stacking, model ensembling.
+4. Good: higher accuracy (not all the time)
+5. Bad: less interpretability, thiner the training data (reduce data)
+6. It is like the neural network with the idea of stacking more algorithms together.
+7. It is more workable in regression model stacking rather than classification model stacking.
+
+### Model stacking
+```{r}
+# Data and package loading
+data(Wage, package = "ISLR"); library(ggplot2); library(caret)
+set.seed(19920323)
+
+# Data preprocessing
+Wage = subset(Wage, select = -c(logwage))
+inBuild = createDataPartition(y = Wage$wage, p = 0.7, list = F)
+validation = Wage[-inBuild, ] # validation.set
+buildData = Wage[inBuild, ]
+inTrain = createDataPartition(y = buildData$wage, p = 0.7, list = F)
+training = buildData[inTrain, ] # training.set
+testing = buildData[-inTrain, ] # testing.set
+
+# Model fitting on training set
+mod1 = train(wage ~ ., method = "glm", data = training)
+mod2 = train(wage ~ ., method = "rf", data = training,
+             trControl = trainControl(method = "cv"), number = 3)
+
+# Predict on testing set
+pred1 = predict(mod1, testing)
+pred2 = predict(mod2, testing)
+
+# Model stacking
+predDF = data.frame(pred1, pred2, 
+                    wage = testing$wage)
+combModFit = train(wage ~ ., method = "gam", data = predDF)
+
+# Predict on validation set
+pred1V = predict(mod1, validation)
+pred2V = predict(mod2, validation)
+predVDF = data.frame(pred1 = pred1V, pred2 = pred2V, 
+                     wage = validation$wage)
+combPredV = predict(combModFit, predVDF)
+
+# Evaluate on validation set
+sqrt(sum((pred1V-validation$wage)^2)) # 1065
+sqrt(sum((pred2V-validation$wage)^2)) # 1092
+sqrt(sum((combPredV-validation$wage)^2)) # 1060 better!
+```
